@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
@@ -7,13 +8,21 @@ import 'package:nasa_spaceapp_challange_pireus/components/animated_switcher.dart
 import 'package:nasa_spaceapp_challange_pireus/components/loading.dart';
 import 'package:nasa_spaceapp_challange_pireus/env.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:nasa_spaceapp_challange_pireus/services/push_notification_service.dart';
 import 'package:slide_action/slide_action.dart';
 import 'package:vibration/vibration.dart';
-import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(backgroundHandler);
+
   runApp(const MyApp());
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.leanBack);
+}
+
+Future<void> backgroundHandler(RemoteMessage message) async {
+  print('Handling a background message ${message.messageId}');
 }
 
 class MyApp extends StatelessWidget {
@@ -41,6 +50,9 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final PushNotificationService _notificationService =
+      PushNotificationService();
+
   final double _defaultZoom = 12.0;
   final _mapController = MapController();
   LatLng? _mapCenter;
@@ -50,6 +62,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void initState() {
+    _notificationService.initialize();
+
     Future.delayed(
       const Duration(seconds: 2),
       () {

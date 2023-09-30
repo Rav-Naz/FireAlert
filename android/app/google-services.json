@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "425415985523",
+    "project_id": "nasa-spaceapp-challange-pireus",
+    "storage_bucket": "nasa-spaceapp-challange-pireus.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:425415985523:android:89704063c2b58264a29d06",
+        "android_client_info": {
+          "package_name": "com.example.nasa_spaceapp_challange_pireus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuaREHqc5MtMP8b-9Spx-aLuYO5Krm5lI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
