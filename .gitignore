@@ -8,7 +8,9 @@
 .buildlog/
 .history
 .svn/
-migrate_working_dir/
+.env
+*.g.dart
+*.lock
 
 # IntelliJ related
 *.iml
@@ -31,6 +33,12 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/android/app/src/main/res
+/ios/Runner/Assets.xcassets/
+/web/icons
+/web/splash
+
+# Web related
 
 # Symbolication related
 app.*.symbols
@@ -42,3 +50,4 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/keys
