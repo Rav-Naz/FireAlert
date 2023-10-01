@@ -19,7 +19,7 @@ import 'package:quickalert/widgets/quickalert_dialog.dart';
 import 'package:slide_action/slide_action.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -683,6 +683,14 @@ class _MyHomePageState extends State<MyHomePage> {
                           secondChild: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              mapButton(Icons.contact_emergency, () async {
+                                const url = "tel:123456789";
+                                if (await canLaunch(url)) {
+                                  await launch(url);
+                                } else {
+                                  throw 'Could not launch $url';
+                                }
+                              }),
                               mapButton(Icons.refresh, start),
                               mapButton(Icons.my_location, () {
                                 _mapController.move(_mapCenter!, _defaultZoom);
@@ -748,7 +756,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 duration: const Duration(milliseconds: 300),
                 left: 15,
                 right: 15,
-                top: isAddingDanger && !isSendingReport ? 15 : -100,
+                top: isAddingDanger && !isSendingReport ? 15 : -150,
                 child: StreamBuilder<Object>(
                     stream: _mapController.mapEventStream,
                     builder: (context, snap) {
@@ -809,94 +817,139 @@ class _MyHomePageState extends State<MyHomePage> {
                     })),
 
             /// Confirmation
-            AnimatedPositioned(
-                left: 15,
-                right: 15,
-                bottom: currentlyViewingSpot == null ? -300 : 15,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                      color: MyColors.white,
-                      boxShadow: [
-                        BoxShadow(
-                            color: MyColors.black.withOpacity(0.2),
-                            spreadRadius: 1,
-                            blurRadius: 10)
-                      ],
-                      borderRadius: BorderRadius.circular(15)),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      var space = 15.0;
-                      var buttonSide = (constraints.maxWidth - space) / 2;
-                      return Row(
-                        children: [
-                          TextButton(
-                              onPressed: () async {
-                                int ID = currentlyViewingSpot!.id;
-                                setState(() {
-                                  currentlyViewingSpot = null;
-                                });
-                                var response = await Dio().post(
-                                    "$baseUrl/bright-spots/$ID/vote?vote=0",
-                                    options: Options(headers: {
-                                      "Accept": "application/json"
-                                    }));
-                                setState(() {
-                                  var index = brightSpots!.indexWhere(
-                                      (element) => element.id == ID);
-                                  if (index >= 0) {
-                                    brightSpots?[index] =
-                                        Spot.fromJson(response.data["data"]);
-                                  }
-                                });
-                              },
-                              style: ButtonStyle(
-                                  shape: MaterialStateProperty.all<
-                                          RoundedRectangleBorder>(
-                                      RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10.0),
-                                  )),
-                                  backgroundColor:
-                                      const MaterialStatePropertyAll(
-                                          MyColors.primary),
-                                  fixedSize: MaterialStatePropertyAll(
-                                      Size(buttonSide, buttonSide))),
-                              child: Icon(
-                                Icons.thumb_down,
-                                color: MyColors.white,
-                                size: buttonSide / 2,
-                              )),
-                          SizedBox(
-                            width: space,
-                          ),
-                          TextButton(
-                              onPressed: () {
-                                setState(() {
-                                  currentlyViewingSpot = null;
-                                });
-                              },
-                              style: ButtonStyle(
-                                  shape: MaterialStateProperty.all<
-                                          RoundedRectangleBorder>(
-                                      RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10.0),
-                                  )),
-                                  backgroundColor:
-                                      const MaterialStatePropertyAll(
-                                          MyColors.green),
-                                  fixedSize: MaterialStatePropertyAll(
-                                      Size(buttonSide, buttonSide))),
-                              child: Icon(
-                                Icons.thumb_up,
-                                color: MyColors.white,
-                                size: buttonSide / 2,
-                              )),
-                        ],
-                      );
-                    },
-                  ),
-                )),
+            StreamBuilder<Object>(
+                stream: _mapController.mapEventStream,
+                builder: (context, snap) {
+                  var latlongCenter = _mapController.pointToLatLng(CustomPoint(
+                      constraints.maxWidth * 0.5, constraints.maxHeight * 0.5));
+                  var distane = getDistanceBetweenPoints(
+                      latlongCenter.latitude,
+                      latlongCenter.longitude,
+                      _mapCenter!.latitude,
+                      _mapCenter!.longitude,
+                      "kilometers");
+                  return AnimatedPositioned(
+                      left: 15,
+                      right: 15,
+                      bottom: currentlyViewingSpot == null ? -300 : 15,
+                      duration: const Duration(milliseconds: 300),
+                      child: Container(
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(
+                            color: MyColors.white,
+                            boxShadow: [
+                              BoxShadow(
+                                  color: MyColors.black.withOpacity(0.2),
+                                  spreadRadius: 1,
+                                  blurRadius: 10)
+                            ],
+                            borderRadius: BorderRadius.circular(15)),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            var space = 15.0;
+                            var buttonSide = (constraints.maxWidth - space) / 2;
+                            var disabled = distane > 10;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                if (disabled)
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 5.0),
+                                    child: Text(
+                                      "You can't confirm a danger in range more than 10 km",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.normal,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                Row(
+                                  children: [
+                                    TextButton(
+                                        onPressed: disabled
+                                            ? null
+                                            : () async {
+                                                int ID =
+                                                    currentlyViewingSpot!.id;
+                                                setState(() {
+                                                  currentlyViewingSpot = null;
+                                                });
+                                                var response = await Dio().post(
+                                                    "$baseUrl/bright-spots/$ID/vote?vote=0",
+                                                    options: Options(headers: {
+                                                      "Accept":
+                                                          "application/json"
+                                                    }));
+                                                setState(() {
+                                                  var index = brightSpots!
+                                                      .indexWhere((element) =>
+                                                          element.id == ID);
+                                                  if (index >= 0) {
+                                                    brightSpots?[index] =
+                                                        Spot.fromJson(response
+                                                            .data["data"]);
+                                                  }
+                                                });
+                                              },
+                                        style: ButtonStyle(
+                                            shape: MaterialStateProperty.all<
+                                                    RoundedRectangleBorder>(
+                                                RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10.0),
+                                            )),
+                                            backgroundColor:
+                                                MaterialStatePropertyAll(
+                                                    MyColors.primary
+                                                        .withOpacity(disabled
+                                                            ? 0.5
+                                                            : 1)),
+                                            fixedSize: MaterialStatePropertyAll(
+                                                Size(buttonSide, buttonSide))),
+                                        child: Icon(
+                                          Icons.thumb_down,
+                                          color: MyColors.white,
+                                          size: buttonSide / 2,
+                                        )),
+                                    SizedBox(
+                                      width: space,
+                                    ),
+                                    TextButton(
+                                        onPressed: disabled
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  currentlyViewingSpot = null;
+                                                });
+                                              },
+                                        style: ButtonStyle(
+                                            shape: MaterialStateProperty.all<
+                                                    RoundedRectangleBorder>(
+                                                RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10.0),
+                                            )),
+                                            backgroundColor:
+                                                MaterialStatePropertyAll(
+                                                    MyColors.green.withOpacity(
+                                                        disabled ? 0.5 : 1)),
+                                            fixedSize: MaterialStatePropertyAll(
+                                                Size(buttonSide, buttonSide))),
+                                        child: Icon(
+                                          Icons.thumb_up,
+                                          color: MyColors.white,
+                                          size: buttonSide / 2,
+                                        )),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ));
+                }),
             if (_mapCenter == null) Positioned.fill(child: loadingPage())
           ],
         );
