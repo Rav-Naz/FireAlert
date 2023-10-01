@@ -87,6 +87,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _determinePosition().then((currPos) async {
       var data = {
         "device_id": await _notificationService.getToken(),
+        "ftm_token": await _notificationService.getToken(),
         "latitude": currPos.latitude.toString(),
         "longitude": currPos.longitude.toString(),
         "country": "greece"
@@ -518,121 +519,156 @@ class _MyHomePageState extends State<MyHomePage> {
                                     ? MyColors.white
                                     : MyColors.primary,
                               ),
-                              child: isAddingDanger
-                                  ? SlideAction(
-                                      trackHeight: 80,
-                                      stretchThumb: true,
-                                      snapAnimationCurve: Curves.linear,
-                                      trackBuilder: (context, currentState) {
-                                        return const Stack(
-                                          children: [
-                                            Center(
-                                              child:
-                                                  Text("Slide to confirm >>"),
-                                            ),
-                                            Positioned(
-                                                top: 15,
-                                                bottom: 15,
-                                                right: 15,
-                                                child: Icon(
-                                                  Icons.notifications_active,
-                                                  color: MyColors.grey,
-                                                  size: 50,
-                                                ))
-                                          ],
-                                        );
-                                      },
-                                      thumbBuilder: (context, currentState) {
-                                        return Container(
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(1000),
-                                            color: MyColors.primary,
-                                          ),
-                                          child: MyAnimatedSwitcher(
-                                              firstChild: const Center(
-                                                child: SpinKitWave(
-                                                  color: MyColors.white,
-                                                  size: 20,
-                                                ),
-                                              ),
-                                              secondChild: Stack(
-                                                children: [
-                                                  Opacity(
-                                                    opacity: currentState
-                                                        .thumbFractionalPosition,
-                                                    child: const Center(
-                                                        child: Text(
-                                                      "ALARM!!!",
-                                                      style: TextStyle(
-                                                          color: MyColors.white,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          fontSize: 20),
-                                                    )),
-                                                  ),
-                                                  button
-                                                ],
-                                              ),
-                                              isFirst: currentState
-                                                  .isPerformingAction),
-                                        );
-                                      },
-                                      action: () async {
-                                        if (await Vibration.hasVibrator() ??
-                                            false) {
-                                          Vibration.vibrate();
-                                        }
-
-                                        var positon = _mapController
+                              child: isAddingDanger && _mapCenter != null
+                                  ? StreamBuilder(
+                                      stream: _mapController.mapEventStream,
+                                      builder: (context, snap) {
+                                        var latlongCenter = _mapController
                                             .pointToLatLng(CustomPoint(
                                                 constraints.maxWidth * 0.5,
                                                 constraints.maxHeight * 0.5));
-                                        print(
-                                            "Sending report with positon: $positon");
-                                        setState(() {
-                                          isSendingReport = true;
-                                        });
-                                        var data = {
-                                          "device_id":
-                                              await _notificationService
-                                                  .getToken(),
-                                          "latitude":
-                                              positon.latitude.toString(),
-                                          "longitude":
-                                              positon.longitude.toString(),
-                                          "country": "greece"
-                                        };
-                                        var response = await Dio().post(
-                                            "$baseUrl/bright-spots",
-                                            data: data,
-                                            options: Options(headers: {
-                                              "Accept": "application/json"
-                                            }));
-                                        QuickAlert.show(
-                                          context: context,
-                                          type: QuickAlertType.success,
-                                          text: 'Fire spot reported',
+                                        var distane = getDistanceBetweenPoints(
+                                            latlongCenter.latitude,
+                                            latlongCenter.longitude,
+                                            _mapCenter!.latitude,
+                                            _mapCenter!.longitude,
+                                            "kilometers");
+                                        return SlideAction(
+                                          trackHeight: 80,
+                                          stretchThumb: true,
+                                          snapAnimationCurve: Curves.linear,
+                                          trackBuilder:
+                                              (context, currentState) {
+                                            return const Stack(
+                                              children: [
+                                                Center(
+                                                  child: Text(
+                                                      "Slide to confirm >>"),
+                                                ),
+                                                Positioned(
+                                                    top: 15,
+                                                    bottom: 15,
+                                                    right: 15,
+                                                    child: Icon(
+                                                      Icons
+                                                          .notifications_active,
+                                                      color: MyColors.grey,
+                                                      size: 50,
+                                                    ))
+                                              ],
+                                            );
+                                          },
+                                          thumbBuilder:
+                                              (context, currentState) {
+                                            return Container(
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(1000),
+                                                color: MyColors.primary,
+                                              ),
+                                              child: MyAnimatedSwitcher(
+                                                  firstChild: const Center(
+                                                    child: SpinKitWave(
+                                                      color: MyColors.white,
+                                                      size: 20,
+                                                    ),
+                                                  ),
+                                                  secondChild: Stack(
+                                                    children: [
+                                                      Opacity(
+                                                        opacity: currentState
+                                                            .thumbFractionalPosition,
+                                                        child: const Center(
+                                                            child: Text(
+                                                          "ALARM!!!",
+                                                          style: TextStyle(
+                                                              color: MyColors
+                                                                  .white,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              fontSize: 20),
+                                                        )),
+                                                      ),
+                                                      button
+                                                    ],
+                                                  ),
+                                                  isFirst: currentState
+                                                      .isPerformingAction),
+                                            );
+                                          },
+                                          action: distane > 10
+                                              ? null
+                                              : () async {
+                                                  if (await Vibration
+                                                          .hasVibrator() ??
+                                                      false) {
+                                                    Vibration.vibrate();
+                                                  }
+
+                                                  var positon = _mapController
+                                                      .pointToLatLng(CustomPoint(
+                                                          constraints.maxWidth *
+                                                              0.5,
+                                                          constraints
+                                                                  .maxHeight *
+                                                              0.5));
+                                                  print(
+                                                      "Sending report with positon: $positon");
+                                                  setState(() {
+                                                    isSendingReport = true;
+                                                  });
+                                                  var data = {
+                                                    "ftm_token":
+                                                        await _notificationService
+                                                            .getToken(),
+                                                    "device_id":
+                                                        await _notificationService
+                                                            .getToken(),
+                                                    "latitude": positon.latitude
+                                                        .toString(),
+                                                    "longitude": positon
+                                                        .longitude
+                                                        .toString(),
+                                                    "country": "greece"
+                                                  };
+                                                  var response = await Dio().post(
+                                                      "$baseUrl/bright-spots",
+                                                      data: data,
+                                                      options: Options(
+                                                          headers: {
+                                                            "Accept":
+                                                                "application/json"
+                                                          }));
+                                                  QuickAlert.show(
+                                                    context: context,
+                                                    type:
+                                                        QuickAlertType.success,
+                                                    text: 'Fire spot reported',
+                                                  );
+                                                  setState(() {
+                                                    isSendingReport = false;
+                                                    isAddingDanger = false;
+                                                    Future.delayed(
+                                                      const Duration(
+                                                          seconds: 1),
+                                                      () {
+                                                        setState(() {
+                                                          brightSpots = List<
+                                                              Spot>.from((response
+                                                                          .data[
+                                                                      'data']
+                                                                  as Iterable)
+                                                              .map((model) =>
+                                                                  Spot.fromJson(
+                                                                      model)));
+                                                        });
+                                                      },
+                                                    );
+                                                  });
+                                                },
                                         );
-                                        setState(() {
-                                          isSendingReport = false;
-                                          isAddingDanger = false;
-                                          Future.delayed(
-                                            const Duration(seconds: 1),
-                                            () {
-                                              setState(() {
-                                                brightSpots = List<Spot>.from(
-                                                    (response.data['data']
-                                                            as Iterable)
-                                                        .map((model) =>
-                                                            Spot.fromJson(
-                                                                model)));
-                                              });
-                                            },
-                                          );
-                                        });
-                                      },
-                                    )
+                                      })
                                   : Stack(
                                       children: [
                                         button,
@@ -713,38 +749,64 @@ class _MyHomePageState extends State<MyHomePage> {
                 left: 15,
                 right: 15,
                 top: isAddingDanger && !isSendingReport ? 15 : -100,
-                child: SafeArea(
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15),
-                        color: MyColors.white,
-                        boxShadow: [
-                          BoxShadow(
-                              color: MyColors.black.withOpacity(0.2),
-                              spreadRadius: 1,
-                              blurRadius: 10)
-                        ]),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                            child: Text(
-                                "Select a point on the map where the fire is occurring")),
-                        TextButton(
-                            onPressed: () {
-                              setState(() {
-                                isAddingDanger = false;
-                              });
-                            },
-                            child: const Text(
-                              "Exit",
-                              style: TextStyle(color: MyColors.primary),
-                            ))
-                      ],
-                    ),
-                  ),
-                )),
+                child: StreamBuilder<Object>(
+                    stream: _mapController.mapEventStream,
+                    builder: (context, snap) {
+                      var latlongCenter = _mapController.pointToLatLng(
+                          CustomPoint(constraints.maxWidth * 0.5,
+                              constraints.maxHeight * 0.5));
+                      var distane = getDistanceBetweenPoints(
+                          latlongCenter.latitude,
+                          latlongCenter.longitude,
+                          _mapCenter!.latitude,
+                          _mapCenter!.longitude,
+                          "kilometers");
+                      return SafeArea(
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(15),
+                              color: MyColors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                    color: MyColors.black.withOpacity(0.2),
+                                    spreadRadius: 1,
+                                    blurRadius: 10)
+                              ]),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                  child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                      "Select a point on the map where the fire is occurring"),
+                                  if (distane > 10)
+                                    const Text(
+                                      "You can't report a danger in range more than 10 km",
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                ],
+                              )),
+                              TextButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      isAddingDanger = false;
+                                    });
+                                  },
+                                  child: const Text(
+                                    "Exit",
+                                    style: TextStyle(color: MyColors.primary),
+                                  ))
+                            ],
+                          ),
+                        ),
+                      );
+                    })),
 
             /// Confirmation
             AnimatedPositioned(
