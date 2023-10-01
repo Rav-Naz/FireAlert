@@ -14,6 +14,8 @@ import 'package:nasa_spaceapp_challange_pireus/env.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:nasa_spaceapp_challange_pireus/models/spot.dart';
 import 'package:nasa_spaceapp_challange_pireus/services/push_notification_service.dart';
+import 'package:quickalert/models/quickalert_type.dart';
+import 'package:quickalert/widgets/quickalert_dialog.dart';
 import 'package:slide_action/slide_action.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -65,24 +67,23 @@ class _MyHomePageState extends State<MyHomePage> {
   LatLng? _focusPoint;
   bool isAddingDanger = false;
   bool isSendingReport = false;
-  String baseUrl = "http://192.168.2.13:80/api";
+  String baseUrl = "http://10.10.10.22:80/api";
   List<Spot>? brightSpots;
   Spot? currentlyViewingSpot;
   double? onePixelIsThisMeters;
   late double lastZoom;
+  double radiusOfCircleMarkInMeters = 5000;
 
   @override
   void initState() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive,
-        overlays: [SystemUiOverlay.bottom]);
     lastZoom = _defaultZoom;
     _notificationService.initialize();
+    start();
 
-    // Future.delayed(
-    //   const Duration(seconds: 2),
-    //   () {
-    //   },
-    // );
+    super.initState();
+  }
+
+  void start() {
     _determinePosition().then((currPos) async {
       var data = {
         "device_id": await _notificationService.getToken(),
@@ -93,12 +94,12 @@ class _MyHomePageState extends State<MyHomePage> {
       var response = await Dio().post("$baseUrl/actual-position",
           data: data,
           options: Options(headers: {"Accept": "application/json"}));
+      print(response.data);
       setState(() {
         brightSpots = List<Spot>.from((response.data['brightSpots'] as Iterable)
             .map((model) => Spot.fromJson(model)));
       });
     });
-    super.initState();
   }
 
   Future<Position> _determinePosition() async {
@@ -121,6 +122,7 @@ class _MyHomePageState extends State<MyHomePage> {
       return Future.error(
           'Location permissions are permanently denied, we cannot request permissions.');
     }
+    // await Future.delayed(const Duration(seconds: 3));
     Geolocator.getPositionStream(locationSettings: const LocationSettings())
         .listen((event) {
       var newLatLong = LatLng(event.latitude, event.longitude);
@@ -135,7 +137,20 @@ class _MyHomePageState extends State<MyHomePage> {
         // print('New position setted to $_mapCenter');
       }
     });
-    return await Geolocator.getCurrentPosition();
+    var currPos = await Geolocator.getCurrentPosition();
+    var newLatLong = LatLng(currPos.latitude, currPos.longitude);
+
+    if (mounted && _mapCenter.toString() != newLatLong.toString()) {
+      var mapCenterBeforeChange = _mapCenter.toString();
+      setState(() {
+        _mapCenter = newLatLong;
+        if (mapCenterBeforeChange == "null") {
+          _mapController.move(_mapCenter!, _defaultZoom);
+        }
+      });
+      // print('New position setted to $_mapCenter');
+    }
+    return currPos;
   }
 
   Widget mapButton(IconData icon, void Function()? onPressed) {
@@ -276,7 +291,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     circles: brightSpots!
                         .map((e) => CircleMarker(
                             point: e.latLng,
-                            radius: 50000,
+                            radius: radiusOfCircleMarkInMeters,
                             useRadiusInMeter: true,
                             color: MyColors.primary.withOpacity(0.3),
                             borderColor: MyColors.primary,
@@ -286,7 +301,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   if (onePixelIsThisMeters != null)
                     MarkerLayer(
                       markers: brightSpots!.map((e) {
-                        var size = (50000 / onePixelIsThisMeters!) * 2;
+                        var size = (radiusOfCircleMarkInMeters /
+                                onePixelIsThisMeters!) *
+                            2;
                         return Marker(
                           rotate: true,
                           point: e.latLng,
@@ -336,7 +353,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                       }
                                     : null,
                                 child: Visibility(
-                                  visible: _mapController.zoom > 6.5,
+                                  visible: _mapController.zoom > 10,
                                   child: Center(
                                     child: Column(
                                       crossAxisAlignment:
@@ -576,15 +593,44 @@ class _MyHomePageState extends State<MyHomePage> {
                                         setState(() {
                                           isSendingReport = true;
                                         });
-                                        await Future.delayed(
-                                          const Duration(seconds: 2),
-                                          () {
-                                            setState(() {
-                                              isSendingReport = false;
-                                              isAddingDanger = false;
-                                            });
-                                          },
+                                        var data = {
+                                          "device_id":
+                                              await _notificationService
+                                                  .getToken(),
+                                          "latitude":
+                                              positon.latitude.toString(),
+                                          "longitude":
+                                              positon.longitude.toString(),
+                                          "country": "greece"
+                                        };
+                                        var response = await Dio().post(
+                                            "$baseUrl/bright-spots",
+                                            data: data,
+                                            options: Options(headers: {
+                                              "Accept": "application/json"
+                                            }));
+                                        QuickAlert.show(
+                                          context: context,
+                                          type: QuickAlertType.success,
+                                          text: 'Fire spot reported',
                                         );
+                                        setState(() {
+                                          isSendingReport = false;
+                                          isAddingDanger = false;
+                                          Future.delayed(
+                                            const Duration(seconds: 1),
+                                            () {
+                                              setState(() {
+                                                brightSpots = List<Spot>.from(
+                                                    (response.data['data']
+                                                            as Iterable)
+                                                        .map((model) =>
+                                                            Spot.fromJson(
+                                                                model)));
+                                              });
+                                            },
+                                          );
+                                        });
                                       },
                                     )
                                   : Stack(
@@ -601,8 +647,12 @@ class _MyHomePageState extends State<MyHomePage> {
                           secondChild: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              mapButton(Icons.refresh, start),
                               mapButton(Icons.my_location, () {
                                 _mapController.move(_mapCenter!, _defaultZoom);
+                                onePixelIsThisMeters = calculatePixelToMeters(
+                                    const CustomPoint(0, 0),
+                                    CustomPoint(constraints.maxWidth, 0));
                               }),
                               mapButton(
                                   Icons.zoom_in,
@@ -612,6 +662,12 @@ class _MyHomePageState extends State<MyHomePage> {
                                             _mapController.move(
                                                 _mapController.center,
                                                 _mapController.zoom + 1);
+                                            onePixelIsThisMeters =
+                                                calculatePixelToMeters(
+                                                    const CustomPoint(0, 0),
+                                                    CustomPoint(
+                                                        constraints.maxWidth,
+                                                        0));
                                           });
                                         }
                                       : null),
@@ -623,6 +679,12 @@ class _MyHomePageState extends State<MyHomePage> {
                                             _mapController.move(
                                                 _mapController.center,
                                                 _mapController.zoom - 1);
+                                            onePixelIsThisMeters =
+                                                calculatePixelToMeters(
+                                                    const CustomPoint(0, 0),
+                                                    CustomPoint(
+                                                        constraints.maxWidth,
+                                                        0));
                                           });
                                         }
                                       : null),
@@ -708,9 +770,23 @@ class _MyHomePageState extends State<MyHomePage> {
                       return Row(
                         children: [
                           TextButton(
-                              onPressed: () {
+                              onPressed: () async {
+                                int ID = currentlyViewingSpot!.id;
                                 setState(() {
                                   currentlyViewingSpot = null;
+                                });
+                                var response = await Dio().post(
+                                    "$baseUrl/bright-spots/$ID/vote?vote=0",
+                                    options: Options(headers: {
+                                      "Accept": "application/json"
+                                    }));
+                                setState(() {
+                                  var index = brightSpots!.indexWhere(
+                                      (element) => element.id == ID);
+                                  if (index >= 0) {
+                                    brightSpots?[index] =
+                                        Spot.fromJson(response.data["data"]);
+                                  }
                                 });
                               },
                               style: ButtonStyle(

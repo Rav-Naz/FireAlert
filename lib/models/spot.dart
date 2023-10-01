@@ -13,9 +13,9 @@ class Spot {
   });
 
   int id;
-  String countryId;
+  String? countryId;
   LatLng latLng;
-  String confidence;
+  String? confidence;
   bool fromNasa;
   Votes votes;
 
