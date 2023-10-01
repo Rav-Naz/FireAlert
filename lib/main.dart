@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:math';
+
+import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -8,10 +12,12 @@ import 'package:nasa_spaceapp_challange_pireus/components/animated_switcher.dart
 import 'package:nasa_spaceapp_challange_pireus/components/loading.dart';
 import 'package:nasa_spaceapp_challange_pireus/env.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:nasa_spaceapp_challange_pireus/models/spot.dart';
 import 'package:nasa_spaceapp_challange_pireus/services/push_notification_service.dart';
 import 'package:slide_action/slide_action.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/services.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,21 +65,43 @@ class _MyHomePageState extends State<MyHomePage> {
   LatLng? _focusPoint;
   bool isAddingDanger = false;
   bool isSendingReport = false;
+  String baseUrl = "http://192.168.2.13:80/api";
+  List<Spot>? brightSpots;
+  Spot? currentlyViewingSpot;
+  double? onePixelIsThisMeters;
+  late double lastZoom;
 
   @override
   void initState() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive,
+        overlays: [SystemUiOverlay.bottom]);
+    lastZoom = _defaultZoom;
     _notificationService.initialize();
 
-    Future.delayed(
-      const Duration(seconds: 2),
-      () {
-        _determinePosition();
-      },
-    );
+    // Future.delayed(
+    //   const Duration(seconds: 2),
+    //   () {
+    //   },
+    // );
+    _determinePosition().then((currPos) async {
+      var data = {
+        "device_id": await _notificationService.getToken(),
+        "latitude": currPos.latitude.toString(),
+        "longitude": currPos.longitude.toString(),
+        "country": "greece"
+      };
+      var response = await Dio().post("$baseUrl/actual-position",
+          data: data,
+          options: Options(headers: {"Accept": "application/json"}));
+      setState(() {
+        brightSpots = List<Spot>.from((response.data['brightSpots'] as Iterable)
+            .map((model) => Spot.fromJson(model)));
+      });
+    });
     super.initState();
   }
 
-  void _determinePosition() async {
+  Future<Position> _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -104,9 +132,10 @@ class _MyHomePageState extends State<MyHomePage> {
             _mapController.move(_mapCenter!, _defaultZoom);
           }
         });
-        print('New position setted to $_mapCenter');
+        // print('New position setted to $_mapCenter');
       }
     });
+    return await Geolocator.getCurrentPosition();
   }
 
   Widget mapButton(IconData icon, void Function()? onPressed) {
@@ -142,6 +171,55 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  double getDistanceBetweenPoints(
+    double latitude1,
+    double longitude1,
+    double latitude2,
+    double longitude2,
+    String unit,
+  ) {
+    final double theta = longitude1 - longitude2;
+    double distance =
+        (sin(degreesToRadians(latitude1)) * sin(degreesToRadians(latitude2))) +
+            (cos(degreesToRadians(latitude1)) *
+                cos(degreesToRadians(latitude2)) *
+                cos(degreesToRadians(theta)));
+    distance = acos(distance);
+    distance = radiansToDegrees(distance);
+    distance = distance * 60 * 1.1515;
+    switch (unit) {
+      case 'miles':
+        break;
+      case 'kilometers':
+        distance = distance * 1.609344;
+        break;
+      case 'meters':
+        distance = distance * 1.609344 * 1000;
+        break;
+      default:
+        throw ArgumentError('Invalid unit: $unit');
+    }
+    return double.parse(distance.toStringAsFixed(2));
+  }
+
+  double degreesToRadians(double degrees) {
+    return degrees * pi / 180.0;
+  }
+
+  double radiansToDegrees(double radians) {
+    return radians * 180.0 / pi;
+  }
+
+  double calculatePixelToMeters(CustomPoint point1, CustomPoint point2) {
+    var latLng1 = _mapController.pointToLatLng(point1);
+    var latLng2 = _mapController.pointToLatLng(point2);
+    var distanceInPixels = point2.x;
+    var distanceInMeters = getDistanceBetweenPoints(latLng1.latitude,
+        latLng1.longitude, latLng2.latitude, latLng2.longitude, "meters");
+    var onePixelIsThisMeters = distanceInMeters / distanceInPixels;
+    return onePixelIsThisMeters;
+  }
+
   @override
   Widget build(BuildContext context) {
     // return Scaffold();
@@ -153,10 +231,36 @@ class _MyHomePageState extends State<MyHomePage> {
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(
+                  onMapReady: () {
+                    setState(() {
+                      onePixelIsThisMeters = calculatePixelToMeters(
+                          const CustomPoint(0, 0),
+                          CustomPoint(constraints.maxWidth, 0));
+                    });
+                  },
+                  onMapEvent: (p0) {
+                    if (currentlyViewingSpot != null) {
+                      setState(() {
+                        currentlyViewingSpot = null;
+                      });
+                    }
+                    if (p0 is MapEventMove &&
+                        (lastZoom - p0.zoom).abs() > 0.2) {
+                      setState(() {
+                        lastZoom = p0.zoom;
+                        onePixelIsThisMeters = calculatePixelToMeters(
+                            const CustomPoint(0, 0),
+                            CustomPoint(constraints.maxWidth, 0));
+                      });
+                    }
+                  },
                   center: _mapCenter,
                   zoom: _defaultZoom,
-                  maxZoom: 18,
-                  minZoom: 3),
+                  interactiveFlags: isSendingReport
+                      ? InteractiveFlag.none
+                      : InteractiveFlag.all,
+                  maxZoom: 17,
+                  minZoom: 4),
               children: [
                 TileLayer(
                   urlTemplate: MyEnv.MAP_URL,
@@ -165,11 +269,147 @@ class _MyHomePageState extends State<MyHomePage> {
                     'id': 'mapbox.satellite',
                   },
                 ),
+
+                /// Circles
+                if (brightSpots != null) ...[
+                  CircleLayer(
+                    circles: brightSpots!
+                        .map((e) => CircleMarker(
+                            point: e.latLng,
+                            radius: 50000,
+                            useRadiusInMeter: true,
+                            color: MyColors.primary.withOpacity(0.3),
+                            borderColor: MyColors.primary,
+                            borderStrokeWidth: 3))
+                        .toList(),
+                  ),
+                  if (onePixelIsThisMeters != null)
+                    MarkerLayer(
+                      markers: brightSpots!.map((e) {
+                        var size = (50000 / onePixelIsThisMeters!) * 2;
+                        return Marker(
+                          rotate: true,
+                          point: e.latLng,
+                          height: size,
+                          width: size,
+                          builder: (context) {
+                            return TextButton(
+                                onPressed: !isAddingDanger
+                                    ? () {
+                                        var point1 = const CustomPoint(0, 0);
+                                        var point2 = CustomPoint(0, size);
+                                        var latlong1 = _mapController
+                                            .pointToLatLng(point1);
+                                        var latlong2 = _mapController
+                                            .pointToLatLng(point2);
+                                        var c = sqrt(pow(
+                                                latlong1.latitude -
+                                                    latlong2.latitude,
+                                                2) +
+                                            pow(
+                                                latlong1.longitude -
+                                                    latlong2.longitude,
+                                                2));
+
+                                        _mapController.fitBounds(
+                                            LatLngBounds(
+                                                LatLng(e.latLng.latitude - c,
+                                                    e.latLng.longitude - c),
+                                                LatLng(e.latLng.latitude + c,
+                                                    e.latLng.longitude + c)),
+                                            options: const FitBoundsOptions(
+                                                maxZoom: 17,
+                                                padding: EdgeInsets.all(20)));
+                                        _mapController.move(
+                                            e.latLng, _mapController.zoom,
+                                            offset: Offset(0,
+                                                constraints.maxHeight * -0.15));
+                                        setState(() {
+                                          currentlyViewingSpot = e;
+                                          lastZoom = _mapController.zoom;
+                                          onePixelIsThisMeters =
+                                              calculatePixelToMeters(
+                                                  const CustomPoint(0, 0),
+                                                  CustomPoint(
+                                                      constraints.maxWidth, 0));
+                                        });
+                                      }
+                                    : null,
+                                child: Visibility(
+                                  visible: _mapController.zoom > 6.5,
+                                  child: Center(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.local_fire_department,
+                                          color: MyColors.primary,
+                                          size: size / 3,
+                                        ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Transform.translate(
+                                              offset: Offset(0, (size / 100)),
+                                              child: Icon(
+                                                Icons.thumb_down,
+                                                color: MyColors.white,
+                                                size: size / 10,
+                                              ),
+                                            ),
+                                            SizedBox(
+                                              width: size / 50,
+                                            ),
+                                            Text(
+                                              e.votes.negative.toString(),
+                                              style: TextStyle(
+                                                  color: MyColors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: size / 10),
+                                            ),
+                                            SizedBox(
+                                              width: size / 10,
+                                            ),
+                                            Transform.translate(
+                                              offset: Offset(0, (size / 100)),
+                                              child: Icon(
+                                                Icons.thumb_up,
+                                                color: MyColors.white,
+                                                size: size / 10,
+                                              ),
+                                            ),
+                                            SizedBox(
+                                              width: size / 50,
+                                            ),
+                                            Text(
+                                              e.votes.positive.toString(),
+                                              style: TextStyle(
+                                                  color: MyColors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: size / 10),
+                                            ),
+                                          ],
+                                        )
+                                      ],
+                                    ),
+                                  ),
+                                ));
+                          },
+                        );
+                      }).toList(),
+                    )
+                ],
+
+                /// User position
                 MarkerLayer(
                   markers: [
-                    /// User position
                     if (_mapCenter != null)
                       Marker(
+                        rotate: true,
                         point: _mapCenter!,
                         height: 30,
                         width: 30,
@@ -214,155 +454,183 @@ class _MyHomePageState extends State<MyHomePage> {
 
             /// Map buttons
             if (_mapCenter != null)
-              Positioned(
+              AnimatedPositioned(
+                curve: Curves.linear,
+                duration: const Duration(milliseconds: 300),
                 bottom: 15,
-                right: 15,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Builder(builder: (context) {
-                      var button = const Positioned(
-                          top: 15,
-                          bottom: 15,
-                          right: 15,
-                          child: Icon(
-                            Icons.local_fire_department,
-                            color: MyColors.white,
-                            size: 50,
-                          ));
-                      var maxWidth = constraints.maxWidth - 30;
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 10.0),
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              isAddingDanger = true;
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.linear,
-                            width: isAddingDanger ? maxWidth : 80,
-                            height: 80,
-                            clipBehavior: Clip.hardEdge,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(1000),
-                              boxShadow: [
-                                BoxShadow(
-                                    color: MyColors.black.withOpacity(0.2),
-                                    spreadRadius: 1,
-                                    blurRadius: 10)
-                              ],
-                              color: isAddingDanger && !isSendingReport
-                                  ? MyColors.white
-                                  : MyColors.primary,
-                            ),
-                            child: isAddingDanger
-                                ? SlideAction(
-                                    trackHeight: 80,
-                                    stretchThumb: true,
-                                    snapAnimationCurve: Curves.linear,
-                                    trackBuilder: (context, currentState) {
-                                      return const Center(
-                                        child: Text("Slide to confirm >>"),
-                                      );
-                                    },
-                                    thumbBuilder: (context, currentState) {
-                                      return Container(
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(1000),
-                                          color: MyColors.primary,
-                                        ),
-                                        child: MyAnimatedSwitcher(
-                                            firstChild: const Center(
-                                              child: SpinKitWave(
-                                                color: MyColors.white,
-                                                size: 20,
-                                              ),
+                right: currentlyViewingSpot == null ? 15 : -100,
+                child: SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Builder(builder: (context) {
+                        var button = const Positioned(
+                            top: 15,
+                            bottom: 15,
+                            right: 15,
+                            child: Icon(
+                              Icons.local_fire_department,
+                              color: MyColors.white,
+                              size: 50,
+                            ));
+                        var maxWidth = constraints.maxWidth - 30;
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10.0),
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                isAddingDanger = true;
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.linear,
+                              width: isAddingDanger ? maxWidth : 80,
+                              height: 80,
+                              clipBehavior: Clip.hardEdge,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(1000),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: MyColors.black.withOpacity(0.2),
+                                      spreadRadius: 1,
+                                      blurRadius: 10)
+                                ],
+                                color: isAddingDanger && !isSendingReport
+                                    ? MyColors.white
+                                    : MyColors.primary,
+                              ),
+                              child: isAddingDanger
+                                  ? SlideAction(
+                                      trackHeight: 80,
+                                      stretchThumb: true,
+                                      snapAnimationCurve: Curves.linear,
+                                      trackBuilder: (context, currentState) {
+                                        return const Stack(
+                                          children: [
+                                            Center(
+                                              child:
+                                                  Text("Slide to confirm >>"),
                                             ),
-                                            secondChild: Stack(
-                                              children: [
-                                                Opacity(
-                                                  opacity: currentState
-                                                      .thumbFractionalPosition,
-                                                  child: const Center(
-                                                      child: Text(
-                                                    "ALARM!!!",
-                                                    style: TextStyle(
-                                                        color: MyColors.white,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 20),
-                                                  )),
+                                            Positioned(
+                                                top: 15,
+                                                bottom: 15,
+                                                right: 15,
+                                                child: Icon(
+                                                  Icons.notifications_active,
+                                                  color: MyColors.grey,
+                                                  size: 50,
+                                                ))
+                                          ],
+                                        );
+                                      },
+                                      thumbBuilder: (context, currentState) {
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(1000),
+                                            color: MyColors.primary,
+                                          ),
+                                          child: MyAnimatedSwitcher(
+                                              firstChild: const Center(
+                                                child: SpinKitWave(
+                                                  color: MyColors.white,
+                                                  size: 20,
                                                 ),
-                                                button
-                                              ],
-                                            ),
-                                            isFirst: currentState
-                                                .isPerformingAction),
-                                      );
-                                    },
-                                    action: () async {
-                                      if (await Vibration.hasVibrator() ??
-                                          false) {
-                                        Vibration.vibrate();
-                                      }
+                                              ),
+                                              secondChild: Stack(
+                                                children: [
+                                                  Opacity(
+                                                    opacity: currentState
+                                                        .thumbFractionalPosition,
+                                                    child: const Center(
+                                                        child: Text(
+                                                      "ALARM!!!",
+                                                      style: TextStyle(
+                                                          color: MyColors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 20),
+                                                    )),
+                                                  ),
+                                                  button
+                                                ],
+                                              ),
+                                              isFirst: currentState
+                                                  .isPerformingAction),
+                                        );
+                                      },
+                                      action: () async {
+                                        if (await Vibration.hasVibrator() ??
+                                            false) {
+                                          Vibration.vibrate();
+                                        }
 
-                                      var positon = _mapController
-                                          .pointToLatLng(CustomPoint(
-                                              constraints.maxWidth * 0.5,
-                                              constraints.maxHeight * 0.5));
-                                      print(
-                                          "Sending report with positon: $positon");
-                                      setState(() {
-                                        isSendingReport = true;
-                                      });
-                                      await Future.delayed(
-                                        const Duration(seconds: 2),
-                                        () {
-                                          setState(() {
-                                            isSendingReport = false;
-                                            isAddingDanger = false;
-                                          });
-                                        },
-                                      );
-                                    },
-                                  )
-                                : Stack(
-                                    children: [
-                                      button,
-                                    ],
-                                  ),
+                                        var positon = _mapController
+                                            .pointToLatLng(CustomPoint(
+                                                constraints.maxWidth * 0.5,
+                                                constraints.maxHeight * 0.5));
+                                        print(
+                                            "Sending report with positon: $positon");
+                                        setState(() {
+                                          isSendingReport = true;
+                                        });
+                                        await Future.delayed(
+                                          const Duration(seconds: 2),
+                                          () {
+                                            setState(() {
+                                              isSendingReport = false;
+                                              isAddingDanger = false;
+                                            });
+                                          },
+                                        );
+                                      },
+                                    )
+                                  : Stack(
+                                      children: [
+                                        button,
+                                      ],
+                                    ),
+                            ),
                           ),
-                        ),
-                      );
-                    }),
-                    mapButton(Icons.my_location, () {
-                      _mapController.move(_mapCenter!, _defaultZoom);
-                    }),
-                    mapButton(
-                        Icons.zoom_in,
-                        _mapController.zoom < 17
-                            ? () {
-                                setState(() {
-                                  _mapController.move(_mapController.center,
-                                      _mapController.zoom + 1);
-                                });
-                              }
-                            : null),
-                    mapButton(
-                        Icons.zoom_out,
-                        _mapController.zoom > 4
-                            ? () {
-                                setState(() {
-                                  _mapController.move(_mapController.center,
-                                      _mapController.zoom - 1);
-                                });
-                              }
-                            : null),
-                  ].reversed.toList(),
+                        );
+                      }),
+                      MyAnimatedSwitcher(
+                          firstChild: const SizedBox.shrink(),
+                          secondChild: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              mapButton(Icons.my_location, () {
+                                _mapController.move(_mapCenter!, _defaultZoom);
+                              }),
+                              mapButton(
+                                  Icons.zoom_in,
+                                  _mapController.zoom < 17
+                                      ? () {
+                                          setState(() {
+                                            _mapController.move(
+                                                _mapController.center,
+                                                _mapController.zoom + 1);
+                                          });
+                                        }
+                                      : null),
+                              mapButton(
+                                  Icons.zoom_out,
+                                  _mapController.zoom > 4
+                                      ? () {
+                                          setState(() {
+                                            _mapController.move(
+                                                _mapController.center,
+                                                _mapController.zoom - 1);
+                                          });
+                                        }
+                                      : null),
+                            ],
+                          ),
+                          isFirst: isSendingReport)
+                    ].reversed.toList(),
+                  ),
                 ),
               ),
 
@@ -413,6 +681,82 @@ class _MyHomePageState extends State<MyHomePage> {
                             ))
                       ],
                     ),
+                  ),
+                )),
+
+            /// Confirmation
+            AnimatedPositioned(
+                left: 15,
+                right: 15,
+                bottom: currentlyViewingSpot == null ? -300 : 15,
+                duration: const Duration(milliseconds: 300),
+                child: Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                      color: MyColors.white,
+                      boxShadow: [
+                        BoxShadow(
+                            color: MyColors.black.withOpacity(0.2),
+                            spreadRadius: 1,
+                            blurRadius: 10)
+                      ],
+                      borderRadius: BorderRadius.circular(15)),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      var space = 15.0;
+                      var buttonSide = (constraints.maxWidth - space) / 2;
+                      return Row(
+                        children: [
+                          TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  currentlyViewingSpot = null;
+                                });
+                              },
+                              style: ButtonStyle(
+                                  shape: MaterialStateProperty.all<
+                                          RoundedRectangleBorder>(
+                                      RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10.0),
+                                  )),
+                                  backgroundColor:
+                                      const MaterialStatePropertyAll(
+                                          MyColors.primary),
+                                  fixedSize: MaterialStatePropertyAll(
+                                      Size(buttonSide, buttonSide))),
+                              child: Icon(
+                                Icons.thumb_down,
+                                color: MyColors.white,
+                                size: buttonSide / 2,
+                              )),
+                          SizedBox(
+                            width: space,
+                          ),
+                          TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  currentlyViewingSpot = null;
+                                });
+                              },
+                              style: ButtonStyle(
+                                  shape: MaterialStateProperty.all<
+                                          RoundedRectangleBorder>(
+                                      RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10.0),
+                                  )),
+                                  backgroundColor:
+                                      const MaterialStatePropertyAll(
+                                          MyColors.green),
+                                  fixedSize: MaterialStatePropertyAll(
+                                      Size(buttonSide, buttonSide))),
+                              child: Icon(
+                                Icons.thumb_up,
+                                color: MyColors.white,
+                                size: buttonSide / 2,
+                              )),
+                        ],
+                      );
+                    },
                   ),
                 )),
             if (_mapCenter == null) Positioned.fill(child: loadingPage())
