@@ -72,7 +72,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Spot? currentlyViewingSpot;
   double? onePixelIsThisMeters;
   late double lastZoom;
-  double radiusOfCircleMarkInMeters = 5000;
+  double radiusOfCircleMarkInMeters = 2500;
 
   @override
   void initState() {
@@ -760,15 +760,18 @@ class _MyHomePageState extends State<MyHomePage> {
                 child: StreamBuilder<Object>(
                     stream: _mapController.mapEventStream,
                     builder: (context, snap) {
-                      var latlongCenter = _mapController.pointToLatLng(
-                          CustomPoint(constraints.maxWidth * 0.5,
-                              constraints.maxHeight * 0.5));
-                      var distane = getDistanceBetweenPoints(
-                          latlongCenter.latitude,
-                          latlongCenter.longitude,
-                          _mapCenter!.latitude,
-                          _mapCenter!.longitude,
-                          "kilometers");
+                      var distane = double.infinity;
+                      if (_mapCenter != null) {
+                        var latlongCenter = _mapController.pointToLatLng(
+                            CustomPoint(constraints.maxWidth * 0.5,
+                                constraints.maxHeight * 0.5));
+                        distane = getDistanceBetweenPoints(
+                            latlongCenter.latitude,
+                            latlongCenter.longitude,
+                            _mapCenter!.latitude,
+                            _mapCenter!.longitude,
+                            "kilometers");
+                      }
                       return SafeArea(
                         child: Container(
                           width: double.infinity,
@@ -820,14 +823,18 @@ class _MyHomePageState extends State<MyHomePage> {
             StreamBuilder<Object>(
                 stream: _mapController.mapEventStream,
                 builder: (context, snap) {
-                  var latlongCenter = _mapController.pointToLatLng(CustomPoint(
-                      constraints.maxWidth * 0.5, constraints.maxHeight * 0.5));
-                  var distane = getDistanceBetweenPoints(
-                      latlongCenter.latitude,
-                      latlongCenter.longitude,
-                      _mapCenter!.latitude,
-                      _mapCenter!.longitude,
-                      "kilometers");
+                  var distane = double.infinity;
+                  if (_mapCenter != null) {
+                    var latlongCenter = _mapController.pointToLatLng(
+                        CustomPoint(constraints.maxWidth * 0.5,
+                            constraints.maxHeight * 0.5));
+                    distane = getDistanceBetweenPoints(
+                        latlongCenter.latitude,
+                        latlongCenter.longitude,
+                        _mapCenter!.latitude,
+                        _mapCenter!.longitude,
+                        "kilometers");
+                  }
                   return AnimatedPositioned(
                       left: 15,
                       right: 15,
@@ -919,9 +926,27 @@ class _MyHomePageState extends State<MyHomePage> {
                                     TextButton(
                                         onPressed: disabled
                                             ? null
-                                            : () {
+                                            : () async {
+                                                int ID =
+                                                    currentlyViewingSpot!.id;
                                                 setState(() {
                                                   currentlyViewingSpot = null;
+                                                });
+                                                var response = await Dio().post(
+                                                    "$baseUrl/bright-spots/$ID/vote?vote=1",
+                                                    options: Options(headers: {
+                                                      "Accept":
+                                                          "application/json"
+                                                    }));
+                                                setState(() {
+                                                  var index = brightSpots!
+                                                      .indexWhere((element) =>
+                                                          element.id == ID);
+                                                  if (index >= 0) {
+                                                    brightSpots?[index] =
+                                                        Spot.fromJson(response
+                                                            .data["data"]);
+                                                  }
                                                 });
                                               },
                                         style: ButtonStyle(
