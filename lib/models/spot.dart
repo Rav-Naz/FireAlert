@@ -27,7 +27,7 @@ class Spot {
       latLng: LatLng(
           double.parse(json['latitude']), double.parse(json['longitude'])),
       confidence: json['confidence'],
-      fromNasa: json['from_nasa'],
+      fromNasa: json['from_nasa'] == 1,
       votes: Votes(
           positive: json['votes']['positive'],
           negative: json['votes']['negative']),

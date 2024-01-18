@@ -67,7 +67,7 @@ class _MyHomePageState extends State<MyHomePage> {
   LatLng? _focusPoint;
   bool isAddingDanger = false;
   bool isSendingReport = false;
-  String baseUrl = "http://10.10.10.22:80/api";
+  String baseUrl = "http://kni.prz.edu.pl:47475/api";
   List<Spot>? brightSpots;
   Spot? currentlyViewingSpot;
   double? onePixelIsThisMeters;
